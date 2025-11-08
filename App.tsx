@@ -1,23 +1,35 @@
 import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
-import Footer from './components/Footer';
 import MindMapGeneratorPage from './pages/MindMapGeneratorPage';
+import MapPointingPage from './pages/MapPointingPage';
+import Footer from './components/Footer';
 
-const App: React.FC = () => {
+export type Tool = 'mindMapGenerator' | 'mapPointing';
+
+function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeTool, setActiveTool] = useState<Tool>('mindMapGenerator');
 
   return (
-    <div className="flex h-screen bg-slate-100">
-      <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
-      
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <Header setSidebarOpen={setSidebarOpen} />
-        
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-100">
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            {/* The MindMapGeneratorPage is the currently active tool */}
-            <MindMapGeneratorPage />
+    <div className="flex h-screen overflow-hidden bg-slate-100">
+      {/* Sidebar */}
+      <Sidebar 
+        sidebarOpen={sidebarOpen} 
+        setSidebarOpen={setSidebarOpen} 
+        activeTool={activeTool}
+        setActiveTool={setActiveTool}
+      />
+
+      {/* Content area */}
+      <div className="relative flex flex-col flex-1 overflow-y-auto overflow-x-hidden">
+        {/*  Site header */}
+        <Header sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+
+        <main className="flex-grow">
+          <div className="px-4 sm:px-6 lg:px-8 py-8 w-full max-w-7xl mx-auto">
+            {activeTool === 'mindMapGenerator' && <MindMapGeneratorPage />}
+            {activeTool === 'mapPointing' && <MapPointingPage />}
           </div>
         </main>
         
@@ -25,6 +37,6 @@ const App: React.FC = () => {
       </div>
     </div>
   );
-};
+}
 
 export default App;

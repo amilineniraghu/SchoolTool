@@ -1,11 +1,13 @@
 import React from 'react';
 import { Bars3, UserCircle, StudySparkLogo } from './Icons';
 
+// Fix: Add sidebarOpen to the component's props to fix the TypeScript error in App.tsx.
 interface HeaderProps {
+  sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ setSidebarOpen }) => {
+const Header: React.FC<HeaderProps> = ({ sidebarOpen, setSidebarOpen }) => {
   return (
     <header className="sticky top-0 bg-white border-b border-slate-200 z-30">
       <div className="px-4 sm:px-6 lg:px-8">
@@ -16,6 +18,7 @@ const Header: React.FC<HeaderProps> = ({ setSidebarOpen }) => {
             <button
               className="text-slate-500 hover:text-slate-600 lg:hidden"
               aria-controls="sidebar"
+              aria-expanded={sidebarOpen}
               onClick={(e) => { e.stopPropagation(); setSidebarOpen(true); }}
             >
               <span className="sr-only">Open sidebar</span>
