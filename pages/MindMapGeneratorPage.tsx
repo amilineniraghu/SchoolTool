@@ -1,212 +1,213 @@
 import React, { useState, useCallback, useMemo } from 'react';
+import { useDropzone } from 'react-dropzone';
 import { extractParagraphsFromImage, generateMindMap } from '../services/geminiService';
 import { MindMapNode, LoadingState } from '../types';
-import MindMap from '../components/MindMap';
-import { UploadIcon, BrainIcon } from '../components/Icons';
+import MindMapModal from '../components/MindMapModal';
+import { UploadIcon, CheckCircleIcon, XCircleIcon, SparklesIcon, BrainIcon } from '../components/Icons';
 
 const MindMapGeneratorPage: React.FC = () => {
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [extractedParagraphs, setExtractedParagraphs] = useState<string[] | null>(null);
-  const [selectedParagraph, setSelectedParagraph] = useState<string | null>(null);
-  const [mindMapData, setMindMapData] = useState<MindMapNode | null>(null);
-  const [loadingState, setLoadingState] = useState<LoadingState>('idle');
-  const [error, setError] = useState<string | null>(null);
+    const [imageFile, setImageFile] = useState<File | null>(null);
+    const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [paragraphs, setParagraphs] = useState<string[]>([]);
+    const [selectedParagraphs, setSelectedParagraphs] = useState<number[]>([]);
+    const [mindMapData, setMindMapData] = useState<MindMapNode | null>(null);
+    const [loadingState, setLoadingState] = useState<LoadingState>('idle');
+    const [error, setError] = useState<string | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setMindMapData(null);
-      setExtractedParagraphs(null);
-      setSelectedParagraph(null);
-      setError(null);
-      
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+    const resetState = () => {
+        setImageFile(null);
+        setImagePreview(null);
+        setParagraphs([]);
+        setSelectedParagraphs([]);
+        setMindMapData(null);
+        setLoadingState('idle');
+        setError(null);
+        setIsModalOpen(false);
+    };
+    
+    const onDrop = useCallback((acceptedFiles: File[]) => {
+        if (acceptedFiles.length > 0) {
+            resetState();
+            const file = acceptedFiles[0];
+            setImageFile(file);
+            const previewUrl = URL.createObjectURL(file);
+            setImagePreview(previewUrl);
+            handleExtractParagraphs(file);
+        }
+    }, []);
 
-  const handleExtractText = useCallback(async () => {
-    if (!imageFile) return;
+    const { getRootProps, getInputProps, isDragActive } = useDropzone({
+        onDrop,
+        accept: { 'image/*': ['.jpeg', '.png', '.jpg', '.webp'] },
+        multiple: false,
+    });
 
-    setLoadingState('extracting');
-    setError(null);
-    setMindMapData(null);
-    setExtractedParagraphs(null);
-    setSelectedParagraph(null);
-    try {
-      const paragraphs = await extractParagraphsFromImage(imageFile);
-      setExtractedParagraphs(paragraphs);
-    } catch (err: any) {
-      setError(err.message || 'An unknown error occurred.');
-      setLoadingState('error');
-    } finally {
-      if(loadingState !== 'error') setLoadingState('idle');
-    }
-  }, [imageFile, loadingState]);
+    const handleExtractParagraphs = async (file: File) => {
+        setLoadingState('extracting');
+        setError(null);
+        try {
+            const extracted = await extractParagraphsFromImage(file);
+            setParagraphs(extracted);
+            setSelectedParagraphs(extracted.map((_, index) => index)); // Select all by default
+            setLoadingState('idle');
+        } catch (err: any) {
+            setError(err.message || 'An unknown error occurred during text extraction.');
+            setLoadingState('error');
+        }
+    };
+    
+    const handleToggleParagraph = (index: number) => {
+        setSelectedParagraphs(prev =>
+            prev.includes(index)
+                ? prev.filter(i => i !== index)
+                : [...prev, index]
+        );
+    };
 
-  const handleGenerateMindMap = useCallback(async (paragraph: string) => {
-    setSelectedParagraph(paragraph);
-    setLoadingState('generating');
-    setError(null);
-    try {
-      const data = await generateMindMap(paragraph);
-      setMindMapData(data);
-    } catch (err: any) {
-      setError(err.message || 'An unknown error occurred.');
-      setLoadingState('error');
-    } finally {
-      if(loadingState !== 'error') setLoadingState('idle');
-    }
-  }, [loadingState]);
+    const handleGenerateMindMap = async () => {
+        const selectedText = selectedParagraphs
+            .sort((a, b) => a - b)
+            .map(i => paragraphs[i])
+            .join('\n\n');
 
-  const loadingMessage = useMemo(() => {
-    switch (loadingState) {
-      case 'extracting':
-        return 'Reading the textbook page...';
-      case 'generating':
-        return 'Generating your mind map...';
-      default:
-        return null;
-    }
-  }, [loadingState]);
+        if (!selectedText.trim()) {
+            setError("Please select at least one paragraph to generate a mind map.");
+            return;
+        }
 
-  const resetState = () => {
-    setImageFile(null);
-    setImagePreview(null);
-    setExtractedParagraphs(null);
-    setSelectedParagraph(null);
-    setMindMapData(null);
-    setLoadingState('idle');
-    setError(null);
-  };
-  
-  return (
-    <>
-      <header className="text-center mb-8">
-        <div className="flex items-center justify-center gap-4">
-            <BrainIcon className="h-10 w-10 text-indigo-600"/>
-            <h1 className="text-4xl font-bold text-slate-800 tracking-tight">Mind Map Generator</h1>
+        setLoadingState('generating');
+        setError(null);
+        setMindMapData(null);
+
+        try {
+            const data = await generateMindMap(selectedText);
+            setMindMapData(data);
+            setIsModalOpen(true);
+            setLoadingState('idle');
+        } catch (err: any) {
+            setError(err.message || 'An unknown error occurred while generating the mind map.');
+            setLoadingState('error');
+        }
+    };
+
+    const LoadingIndicator: React.FC<{ message: string }> = ({ message }) => (
+        <div className="flex flex-col items-center justify-center text-center p-8 bg-slate-50 rounded-lg">
+            <svg className="animate-spin h-8 w-8 text-indigo-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p className="text-lg font-semibold text-slate-700">{message}</p>
         </div>
-        <p className="mt-2 text-lg text-slate-600">Upload a textbook page and turn text into a visual learning tool.</p>
-      </header>
+    );
 
-      <main className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Left Column: Input and Controls */}
-        <div className="bg-white p-6 rounded-xl shadow-lg space-y-6">
-          <div>
-            <label htmlFor="file-upload" className="block text-sm font-medium text-slate-700 mb-2">
-              Step 1: Upload a Textbook Page
-            </label>
-            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-slate-300 border-dashed rounded-md">
-              <div className="space-y-1 text-center">
-                <UploadIcon className="mx-auto h-12 w-12 text-slate-400"/>
-                <div className="flex text-sm text-slate-600">
-                  <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500">
-                    <span>Upload a file</span>
-                    <input id="file-upload" name="file-upload" type="file" className="sr-only" accept="image/*" onChange={handleImageChange} />
-                  </label>
-                  <p className="pl-1">or drag and drop</p>
+    const hasSelection = useMemo(() => selectedParagraphs.length > 0, [selectedParagraphs]);
+
+    return (
+        <div className="space-y-8">
+            <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
+                <BrainIcon className="w-8 h-8 text-indigo-500"/>
+                Mind Map Generator
+            </h1>
+
+            {/* Step 1: Upload */}
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                <h2 className="text-xl font-semibold text-slate-700 mb-4">Step 1: Upload an Image of Your Notes</h2>
+                 <div {...getRootProps()} className={`p-10 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors ${isDragActive ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 hover:border-indigo-400'}`}>
+                    <input {...getInputProps()} />
+                    <div className="flex flex-col items-center text-slate-500">
+                        <UploadIcon className="w-12 h-12 mb-3" />
+                        {isDragActive ?
+                            <p className="text-lg font-semibold text-indigo-600">Drop the image here ...</p> :
+                            <p className="text-lg">Drag 'n' drop an image here, or click to select</p>
+                        }
+                        <p className="text-sm mt-1">PNG, JPG, WEBP accepted</p>
+                    </div>
                 </div>
-                <p className="text-xs text-slate-500">PNG, JPG, GIF up to 10MB</p>
-              </div>
-            </div>
-          </div>
 
-          {imagePreview && (
-            <>
-              <div className="border-t border-slate-200 pt-6">
-                <h3 className="text-lg font-semibold text-slate-800">Your Uploaded Page</h3>
-                <div className="mt-4 rounded-lg overflow-hidden border border-slate-200">
-                  <img src={imagePreview} alt="Textbook page preview" className="w-full h-auto object-contain max-h-96" />
+                 {imagePreview && (
+                    <div className="mt-6">
+                        <h3 className="font-semibold text-slate-600 mb-2">Image Preview:</h3>
+                        <div className="relative border rounded-lg overflow-hidden max-w-md mx-auto">
+                            <img src={imagePreview} alt="Uploaded notes" className="w-full h-auto" />
+                            <button onClick={resetState} className="absolute top-2 right-2 p-1 bg-white/70 rounded-full text-slate-600 hover:bg-white hover:text-slate-800">
+                                <XCircleIcon className="w-6 h-6"/>
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {loadingState === 'extracting' && <LoadingIndicator message="Analyzing image and extracting text..." />}
+            
+            {error && (
+                <div className="p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg flex items-start gap-3">
+                    <XCircleIcon className="w-6 h-6 flex-shrink-0 mt-0.5"/>
+                    <div>
+                        <h3 className="font-bold">An Error Occurred</h3>
+                        <p>{error}</p>
+                    </div>
                 </div>
-                  <button
-                    onClick={handleExtractText}
-                    disabled={loadingState === 'extracting' || !imageFile}
-                    className="mt-4 w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-300 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Step 2: Extract Text
-                  </button>
-              </div>
-            </>
-          )}
-
-          {extractedParagraphs && extractedParagraphs.length > 0 && (
-            <div className="border-t border-slate-200 pt-6">
-              <h3 className="text-lg font-semibold text-slate-800">Step 3: Select a Paragraph to Map</h3>
-              <div className="mt-4 space-y-2 max-h-96 overflow-y-auto pr-2">
-                {extractedParagraphs.map((p, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleGenerateMindMap(p)}
-                    disabled={loadingState === 'generating'}
-                    className={`w-full text-left p-4 rounded-lg transition-all text-sm
-                      ${selectedParagraph === p 
-                        ? 'bg-indigo-100 text-indigo-900 ring-2 ring-indigo-500' 
-                        : 'bg-slate-50 hover:bg-slate-100 hover:ring-2 hover:ring-slate-300'}`
-                    }
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {extractedParagraphs && extractedParagraphs.length === 0 && loadingState === 'idle' &&
-            <p className="text-center text-slate-500">No paragraphs could be extracted from the image.</p>
-          }
-
-        </div>
-        
-        {/* Right Column: Mind Map Output */}
-        <div className="bg-white p-6 rounded-xl shadow-lg min-h-[600px] flex flex-col">
-          {mindMapData ? (
-            <div className="border-b border-slate-200 pb-4 mb-4">
-              <h2 className="text-2xl font-bold text-slate-800 text-center">{mindMapData.name}</h2>
-              {mindMapData.children && mindMapData.children.length > 0 && (
-                <div className="mt-3">
-                  <p className="text-sm font-medium text-slate-500 mb-2 text-center">Key Concepts:</p>
-                  <div className="flex flex-wrap gap-2 justify-center">
-                    {mindMapData.children.map((child, index) => (
-                      <span key={index} className="bg-indigo-100 text-indigo-800 text-xs font-semibold px-3 py-1 rounded-full">
-                        {child.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <h2 className="text-xl font-semibold text-slate-800 text-center">Generated Mind Map</h2>
-          )}
-          <div className="w-full flex-grow flex items-center justify-center border-2 border-slate-200 border-dashed rounded-lg p-4">
-            {loadingState === 'extracting' || loadingState === 'generating' ? (
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
-                <p className="mt-4 text-slate-600">{loadingMessage}</p>
-              </div>
-            ) : error ? (
-              <div className="text-center text-red-600">
-                <p className="font-semibold">An Error Occurred</p>
-                <p className="text-sm">{error}</p>
-                <button onClick={resetState} className="mt-4 px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600">Try Again</button>
-              </div>
-            ) : mindMapData ? (
-              <MindMap data={mindMapData} />
-            ) : (
-              <div className="text-center text-slate-500">
-                <p>Your mind map will appear here once generated.</p>
-              </div>
             )}
-          </div>
+
+            {/* Step 2: Select Paragraphs */}
+            {paragraphs.length > 0 && loadingState !== 'extracting' && (
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h2 className="text-xl font-semibold text-slate-700 mb-4">Step 2: Select Paragraphs to Include</h2>
+                    <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                        {paragraphs.map((p, index) => (
+                            <div key={index} onClick={() => handleToggleParagraph(index)} className={`p-4 border rounded-lg cursor-pointer transition-all duration-200 flex items-start gap-4 ${selectedParagraphs.includes(index) ? 'bg-indigo-50 border-indigo-300 shadow-sm' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`}>
+                                <div className="flex-shrink-0 mt-1">
+                                    {selectedParagraphs.includes(index) ? 
+                                     <CheckCircleIcon className="w-6 h-6 text-indigo-500"/> :
+                                     <div className="w-6 h-6 border-2 border-slate-300 rounded-full bg-white"></div>
+                                    }
+                                </div>
+                                <p className={`text-sm ${selectedParagraphs.includes(index) ? 'text-slate-800' : 'text-slate-600'}`}>
+                                    {p}
+                                </p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+            
+            {/* Step 3: Generate Mind Map */}
+            {paragraphs.length > 0 && loadingState !== 'extracting' && (
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h2 className="text-xl font-semibold text-slate-700 mb-4">Step 3: Generate Your Mind Map</h2>
+                    <p className="text-sm text-slate-600 mb-5">Click the button below to generate a mind map from the {selectedParagraphs.length} selected paragraph(s).</p>
+                    <button
+                        onClick={handleGenerateMindMap}
+                        disabled={loadingState === 'generating' || !hasSelection}
+                        className="w-full flex items-center justify-center gap-3 px-6 py-3 text-lg font-semibold text-white bg-indigo-600 rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-300 disabled:cursor-not-allowed"
+                    >
+                        {loadingState === 'generating' ? (
+                            <>
+                                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Generating...
+                            </>
+                        ) : (
+                           <>
+                            <SparklesIcon className="w-6 h-6" />
+                            Generate Mind Map
+                           </>
+                        )}
+                    </button>
+                    {!hasSelection && <p className="text-center text-sm text-red-600 mt-3">Please select at least one paragraph.</p>}
+                </div>
+            )}
+
+            <MindMapModal 
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                mindMapData={mindMapData}
+            />
         </div>
-      </main>
-    </>
-  );
+    );
 };
 
 export default MindMapGeneratorPage;

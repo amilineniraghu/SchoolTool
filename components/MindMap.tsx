@@ -1,187 +1,92 @@
-import React, { useRef, useEffect } from 'react';
-import * as d3 from 'd3';
+import React from 'react';
 import { MindMapNode } from '../types';
-import { IconMap } from './Icons';
+import * as Icons from './Icons';
+
+// A helper to get the icon component by name
+const getIcon = (name: string): React.FC<React.SVGProps<SVGSVGElement>> => {
+  const iconName = name as keyof typeof Icons;
+  const IconComponent = Icons[iconName];
+  return IconComponent || Icons.DocumentText;
+};
+
+const Node: React.FC<{ node: MindMapNode; level: number }> = ({ node, level }) => {
+  const Icon = getIcon(node.icon);
+  const hasChildren = node.children && node.children.length > 0;
+
+  const levelStyles = [
+    { bg: 'bg-indigo-100', text: 'text-indigo-800', border: 'border-indigo-300' },
+    { bg: 'bg-sky-100', text: 'text-sky-800', border: 'border-sky-300' },
+    { bg: 'bg-emerald-100', text: 'text-emerald-800', border: 'border-emerald-300' },
+    { bg: 'bg-amber-100', text: 'text-amber-800', border: 'border-amber-300' },
+  ];
+
+  const style = levelStyles[level % levelStyles.length];
+
+  return (
+    <li className="relative group">
+      {/* Connector Line */}
+      <span className="absolute top-0 left-0 w-px h-full bg-slate-300 -translate-x-4 translate-y-6" aria-hidden="true"></span>
+      
+      <div className="flex flex-col gap-2">
+        <div className={`flex items-start gap-3 p-3 rounded-lg border ${style.bg} ${style.border} shadow-sm`}>
+          <div className="flex-shrink-0">
+            <Icon className={`w-6 h-6 ${style.text}`} />
+          </div>
+          <div>
+            <h4 className={`text-md font-semibold ${style.text}`}>{node.name}</h4>
+            {node.details && <p className={`mt-1 text-sm ${style.text} opacity-80`}>{node.details}</p>}
+          </div>
+        </div>
+        
+        {hasChildren && (
+          <ul className="pl-8 space-y-4 pt-4">
+            {node.children?.map((child, index) => (
+              <Node key={`${level}-${index}-${child.name}`} node={child} level={level + 1} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </li>
+  );
+};
 
 interface MindMapProps {
-  data: MindMapNode;
+  data: MindMapNode | null;
 }
 
 const MindMap: React.FC<MindMapProps> = ({ data }) => {
-  const svgRef = useRef<SVGSVGElement>(null);
+  if (!data) {
+    return null;
+  }
 
-  useEffect(() => {
-    if (!data || !svgRef.current) return;
-
-    // --- Tooltip Setup ---
-    // Create a tooltip div that we'll show and hide on hover
-    const tooltip = d3.select('body').append('div')
-      .attr('class', 'mindmap-tooltip absolute z-50 invisible px-3 py-2 text-sm font-light text-white bg-slate-900 rounded-md shadow-lg opacity-0 transition-opacity duration-200 pointer-events-none')
-      .style('max-width', '250px');
-
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
-
-    const width = 1000;
-    const height = 800;
-    const margin = { top: 50, right: 120, bottom: 50, left: 120 };
-
-    const root = d3.hierarchy(data);
-    
-    // Assign a unique ID to each node for easy selection during interaction
-    let nodeId = 0;
-    root.each(d => { (d as any).id = nodeId++; });
-
-    const treeLayout = d3.tree<MindMapNode>().size([
-      height - margin.top - margin.bottom,
-      width - margin.left - margin.right,
-    ]);
-
-    treeLayout(root);
-
-    svg.attr('viewBox', `0 0 ${width} ${height}`)
-      .style('cursor', 'move');
-
-    const zoomableGroup = svg.append('g');
-
-    const contentGroup = zoomableGroup.append('g')
-      .attr('transform', `translate(${margin.left},${margin.top})`);
-
-    const linkGenerator = d3
-      .linkHorizontal<d3.HierarchyPointLink<MindMapNode>, d3.HierarchyPointNode<MindMapNode>>()
-      .x((d) => d.y)
-      .y((d) => d.x);
-
-    const links = contentGroup.selectAll('.link')
-      .data(root.links())
-      .enter()
-      .append('path')
-      .attr('class', 'link')
-      .attr('id', d => `link-${(d.source as any).id}-${(d.target as any).id}`)
-      .attr('d', linkGenerator)
-      .attr('fill', 'none')
-      .attr('stroke', '#cbd5e1')
-      .attr('stroke-width', 2)
-      .style('transition', 'all 0.3s ease');
-
-    const nodes = contentGroup
-      .selectAll('.node')
-      .data(root.descendants())
-      .enter()
-      .append('g')
-      .attr('class', (d) => `node ${d.children ? 'node--internal' : 'node--leaf'}`)
-      .attr('id', d => `node-${(d as any).id}`)
-      .attr('transform', (d) => `translate(${(d as any).y},${(d as any).x})`)
-      .style('cursor', 'pointer')
-      .style('transition', 'opacity 0.3s ease');
-
-
-    const nodeSize = 32;
-    const iconSize = 20;
-
-    nodes
-      .append('circle')
-      .attr('r', nodeSize / 2)
-      .attr('fill', d => d.depth === 0 ? '#4f46e5' : '#eef2ff')
-      .attr('stroke', d => d.depth === 0 ? '#4338ca' : '#c7d2fe')
-      .attr('stroke-width', 1.5);
-
-    nodes.each(function (d) {
-      const iconData = IconMap[d.data.icon || 'DocumentText'];
-      if (iconData) {
-        const scale = iconSize / 24; // Source icons are 24x24
-        d3.select(this)
-          .append('path')
-          .attr('d', iconData.path)
-          .attr('fill', d.depth === 0 ? 'white' : '#4338ca')
-          .attr('transform', `translate(-${iconSize/2}, -${iconSize/2}) scale(${scale})`);
-      }
-    });
-
-    nodes
-      .append('text')
-      .attr('dy', '0.31em')
-      .attr('x', (d) => (d.children ? -(nodeSize / 2 + 6) : (nodeSize / 2 + 6)))
-      .attr('text-anchor', (d) => (d.children ? 'end' : 'start'))
-      .text((d) => d.data.name)
-      .style('font-size', '14px')
-      .style('font-weight', '500')
-      .style('fill', '#334155')
-      .clone(true)
-      .lower()
-      .attr('stroke-linejoin', 'round')
-      .attr('stroke-width', 3)
-      .attr('stroke', 'white');
-
-    // Add hover interactions for highlighting and tooltips
-    nodes
-      .on('mouseover', (event, d_hovered) => {
-        const d = d_hovered as any;
-        
-        // --- Highlighting Logic ---
-        nodes.style('opacity', 0.2);
-        links.style('opacity', 0.2);
-        d3.select(`#node-${d.id}`).style('opacity', 1);
-
-        if (d.parent) {
-          d3.select(`#node-${d.parent.id}`).style('opacity', 1);
-          d3.select(`#link-${d.parent.id}-${d.id}`)
-            .style('opacity', 1)
-            .attr('stroke', '#4f46e5')
-            .attr('stroke-width', 3);
-        }
-        if (d.children) {
-          d.children.forEach((child: any) => {
-            d3.select(`#node-${child.id}`).style('opacity', 1);
-            d3.select(`#link-${d.id}-${child.id}`)
-              .style('opacity', 1)
-              .attr('stroke', '#4f46e5')
-              .attr('stroke-width', 3);
-          });
-        }
-        
-        // --- Tooltip Logic ---
-        let tooltipContent = `<div class="font-semibold text-base mb-1 border-b border-slate-700 pb-1">${d.data.name}</div>`;
-        if (d.data.details) {
-          tooltipContent += `<div class="mt-1">${d.data.details}</div>`;
-        }
-        tooltip.html(tooltipContent)
-          .style('opacity', 1)
-          .style('visibility', 'visible');
-      })
-      .on('mousemove', (event) => {
-        tooltip
-          .style('left', `${event.pageX + 15}px`)
-          .style('top', `${event.pageY + 15}px`);
-      })
-      .on('mouseout', () => {
-        // --- Highlighting Reset ---
-        nodes.style('opacity', 1);
-        links
-          .style('opacity', 1)
-          .attr('stroke', '#cbd5e1')
-          .attr('stroke-width', 2);
-        
-        // --- Tooltip Reset ---
-        tooltip.style('opacity', 0).style('visibility', 'hidden');
-      });
-
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.5, 5])
-      .on('zoom', (event) => {
-        zoomableGroup.attr('transform', event.transform);
-      });
-
-    svg.call(zoom);
-
-    // Cleanup tooltip on component re-render or unmount
-    return () => {
-      tooltip.remove();
-    };
-
-  }, [data]);
-
-  return <svg ref={svgRef} className="w-full h-full"></svg>;
+  return (
+    <div className="p-4 sm:p-6 bg-white rounded-lg shadow-lg">
+      <ul className="space-y-4">
+        {/* The first node doesn't have a connector line from above, so it's rendered outside the recursive component */}
+        <li className="relative">
+          <div className="flex flex-col gap-2">
+            <div className={`flex items-start gap-3 p-4 rounded-lg border bg-slate-100 border-slate-300 shadow`}>
+               <div className="flex-shrink-0">
+                {React.createElement(getIcon(data.icon), { className: 'w-7 h-7 text-slate-700' })}
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">{data.name}</h3>
+                {data.details && <p className="mt-1 text-sm text-slate-600">{data.details}</p>}
+              </div>
+            </div>
+            
+            {data.children && data.children.length > 0 && (
+              <ul className="pl-8 space-y-4 pt-4">
+                {data.children?.map((child, index) => (
+                  <Node key={`0-${index}-${child.name}`} node={child} level={0} />
+                ))}
+              </ul>
+            )}
+          </div>
+        </li>
+      </ul>
+    </div>
+  );
 };
 
 export default MindMap;
