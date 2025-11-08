@@ -1,0 +1,5 @@
+{
+  "name": "Mind Map Generator",
+  "description": "An intuitive application for students to upload a picture of a textbook page, select a paragraph, and generate a mind map to aid in memorization and learning.",
+  "requestFramePermissions": []
+}
