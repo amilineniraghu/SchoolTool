@@ -1,90 +1,181 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
+import * as d3 from 'd3';
 import { MindMapNode } from '../types';
-import * as Icons from './Icons';
-
-// A helper to get the icon component by name
-const getIcon = (name: string): React.FC<React.SVGProps<SVGSVGElement>> => {
-  const iconName = name as keyof typeof Icons;
-  const IconComponent = Icons[iconName];
-  return IconComponent || Icons.DocumentText;
-};
-
-const Node: React.FC<{ node: MindMapNode; level: number }> = ({ node, level }) => {
-  const Icon = getIcon(node.icon);
-  const hasChildren = node.children && node.children.length > 0;
-
-  const levelStyles = [
-    { bg: 'bg-indigo-100', text: 'text-indigo-800', border: 'border-indigo-300' },
-    { bg: 'bg-sky-100', text: 'text-sky-800', border: 'border-sky-300' },
-    { bg: 'bg-emerald-100', text: 'text-emerald-800', border: 'border-emerald-300' },
-    { bg: 'bg-amber-100', text: 'text-amber-800', border: 'border-amber-300' },
-  ];
-
-  const style = levelStyles[level % levelStyles.length];
-
-  return (
-    <li className="relative group">
-      {/* Connector Line */}
-      <span className="absolute top-0 left-0 w-px h-full bg-slate-300 -translate-x-4 translate-y-6" aria-hidden="true"></span>
-      
-      <div className="flex flex-col gap-2">
-        <div className={`flex items-start gap-3 p-3 rounded-lg border ${style.bg} ${style.border} shadow-sm`}>
-          <div className="flex-shrink-0">
-            <Icon className={`w-6 h-6 ${style.text}`} />
-          </div>
-          <div>
-            <h4 className={`text-md font-semibold ${style.text}`}>{node.name}</h4>
-            {node.details && <p className={`mt-1 text-sm ${style.text} opacity-80`}>{node.details}</p>}
-          </div>
-        </div>
-        
-        {hasChildren && (
-          <ul className="pl-8 space-y-4 pt-4">
-            {node.children?.map((child, index) => (
-              <Node key={`${level}-${index}-${child.name}`} node={child} level={level + 1} />
-            ))}
-          </ul>
-        )}
-      </div>
-    </li>
-  );
-};
+import { IconMap } from './Icons';
 
 interface MindMapProps {
-  data: MindMapNode | null;
+  data: MindMapNode;
 }
 
 const MindMap: React.FC<MindMapProps> = ({ data }) => {
-  if (!data) {
-    return null;
-  }
+  const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!data || !svgRef.current || !containerRef.current) return;
+
+    const svg = d3.select(svgRef.current);
+
+    const tooltip = d3.select('body').append('div')
+        .attr('class', 'd3-tooltip')
+        .style('position', 'absolute')
+        .style('z-index', '100')
+        .style('visibility', 'hidden')
+        .style('background', 'rgba(0,0,0,0.8)')
+        .style('color', '#fff')
+        .style('padding', '8px 12px')
+        .style('border-radius', '6px')
+        .style('font-family', "'Inter', sans-serif")
+        .style('font-size', '12px')
+        .style('max-width', '250px');
+    
+    function draw(width: number, height: number) {
+      if(width <= 0 || height <= 0) return;
+      
+      // Clear previous render to prevent duplication on resize
+      svg.selectAll('*').remove();
+        
+      svg.attr('width', width).attr('height', height);
+      const g = svg.append('g');
+
+      const nodeWidth = 160;
+      const nodeHeight = 60;
+      const horizontalSeparation = 100;
+      const verticalSeparation = 80;
+
+      const tree = d3.tree<MindMapNode>()
+        .nodeSize([nodeHeight + verticalSeparation, nodeWidth + horizontalSeparation]);
+      
+      const root = d3.hierarchy(data);
+      const treeLayout = tree(root);
+
+      const linkGenerator = d3.linkHorizontal<d3.HierarchyPointLink<MindMapNode>, d3.HierarchyPointNode<MindMapNode>>()
+        .x(d => d.y)
+        .y(d => d.x);
+
+      // --- LINKS ---
+      const links = g.append('g')
+        .attr('class', 'links')
+        .attr('fill', 'none')
+        .attr('stroke', '#cbd5e1')
+        .attr('stroke-width', 2)
+        .selectAll('path')
+        .data(treeLayout.links())
+        .join('path')
+        .attr('d', linkGenerator as any);
+
+      // --- NODES ---
+      const nodes = g.append('g')
+        .attr('class', 'nodes')
+        .selectAll('g')
+        .data(treeLayout.descendants())
+        .join('g')
+        .attr('transform', d => `translate(${d.y},${d.x})`);
+
+      const nodeColors = d3.scaleSequential(d3.interpolateCool).domain([0, root.height + 1]);
+
+      nodes.append('rect')
+        .attr('width', nodeWidth)
+        .attr('height', nodeHeight)
+        .attr('x', -nodeWidth / 2)
+        .attr('y', -nodeHeight / 2)
+        .attr('rx', 8)
+        .attr('ry', 8)
+        .attr('fill', d => d3.color(nodeColors(d.depth))?.brighter(1.5).toString() || 'white')
+        .attr('stroke', d => nodeColors(d.depth))
+        .attr('stroke-width', 2);
+        
+      // --- ICONS ---
+      nodes.each(function (d) {
+        const iconData = IconMap[d.data.icon];
+        if (iconData) {
+            d3.select(this).append('path')
+                .attr('d', iconData.path)
+                .attr('transform', `translate(${-nodeWidth / 2 + 10}, ${-12}) scale(0.5)`)
+                .attr(iconData.type === 'fill' ? 'fill' : 'stroke', nodeColors(d.depth))
+                .attr('stroke-width', iconData.type === 'stroke' ? 3 : 0)
+                .attr('fill', iconData.type === 'fill' ? nodeColors(d.depth) : 'none');
+        }
+      });
+
+      // --- TEXT ---
+      nodes.append('foreignObject')
+        .attr('width', nodeWidth - 40)
+        .attr('height', nodeHeight)
+        .attr('x', -nodeWidth / 2 + 35)
+        .attr('y', -nodeHeight / 2)
+        .append('xhtml:div')
+        .style('width', `${nodeWidth - 40}px`)
+        .style('height', `${nodeHeight}px`)
+        .style('display', 'flex')
+        .style('align-items', 'center')
+        .style('font-family', "'Inter', sans-serif")
+        .style('font-size', '13px')
+        .style('font-weight', '600')
+        .style('color', '#1e293b')
+        .style('line-height', '1.3')
+        .html(d => d.data.name);
+
+      // --- CENTER & ZOOM ---
+      const bounds = g.node()!.getBBox();
+      const scale = 0.85 * Math.min(width / bounds.width, height / bounds.height);
+      const translateX = (width - bounds.width * scale) / 2 - (bounds.x - 30) * scale;
+      const translateY = (height - bounds.height * scale) / 2 - bounds.y * scale;
+
+      const initialTransform = d3.zoomIdentity.translate(translateX, translateY).scale(scale);
+
+      const zoom = d3.zoom<SVGSVGElement, unknown>()
+        .scaleExtent([0.1, 2])
+        .on('zoom', (event) => {
+          g.attr('transform', event.transform);
+        });
+
+      svg.call(zoom).call(zoom.transform, initialTransform);
+
+      // --- INTERACTIVITY ---
+      nodes
+        .on('mouseover', function(event, d) {
+          const ancestors = d.ancestors();
+          const ancestorIds = new Set(ancestors.map(node => node.data.name));
+          
+          nodes.transition().duration(300).attr('opacity', n => ancestorIds.has(n.data.name) ? 1.0 : 0.3);
+          links.transition().duration(300)
+            .attr('opacity', l => ancestorIds.has(l.source.data.name) && ancestorIds.has(l.target.data.name) ? 1.0 : 0.2)
+            .attr('stroke', l => ancestorIds.has(l.source.data.name) && ancestorIds.has(l.target.data.name) ? nodeColors(l.source.depth) : '#cbd5e1')
+            .attr('stroke-width', l => ancestorIds.has(l.source.data.name) && ancestorIds.has(l.target.data.name) ? 3 : 2);
+          
+          tooltip
+              .html(`<strong>${d.data.name}</strong><br/>${d.data.details || ''}`)
+              .style('visibility', 'visible');
+        })
+        .on('mousemove', function(event) {
+            tooltip.style('top', (event.pageY - 10) + 'px').style('left', (event.pageX + 10) + 'px');
+        })
+        .on('mouseout', function() {
+          nodes.transition().duration(300).attr('opacity', 1);
+          links.transition().duration(300).attr('opacity', 1).attr('stroke', '#cbd5e1').attr('stroke-width', 2);
+          tooltip.style('visibility', 'hidden');
+        });
+    }
+
+    const observer = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect;
+      draw(width, height);
+    });
+
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+    
+    return () => {
+        observer.disconnect();
+        tooltip.remove();
+    };
+  }, [data]);
 
   return (
-    <div className="p-4 sm:p-6 bg-white rounded-lg shadow-lg">
-      <ul className="space-y-4">
-        {/* The first node doesn't have a connector line from above, so it's rendered outside the recursive component */}
-        <li className="relative">
-          <div className="flex flex-col gap-2">
-            <div className={`flex items-start gap-3 p-4 rounded-lg border bg-slate-100 border-slate-300 shadow`}>
-               <div className="flex-shrink-0">
-                {React.createElement(getIcon(data.icon), { className: 'w-7 h-7 text-slate-700' })}
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-slate-800">{data.name}</h3>
-                {data.details && <p className="mt-1 text-sm text-slate-600">{data.details}</p>}
-              </div>
-            </div>
-            
-            {data.children && data.children.length > 0 && (
-              <ul className="pl-8 space-y-4 pt-4">
-                {data.children?.map((child, index) => (
-                  <Node key={`0-${index}-${child.name}`} node={child} level={0} />
-                ))}
-              </ul>
-            )}
-          </div>
-        </li>
-      </ul>
+    <div ref={containerRef} className="w-full h-[65vh] rounded-lg overflow-hidden bg-slate-50 border border-slate-200">
+      <svg ref={svgRef}></svg>
     </div>
   );
 };
